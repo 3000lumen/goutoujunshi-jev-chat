@@ -1,0 +1,73 @@
+name: Build iOS device IPA (unsigned, for Sideloadly)
+
+# 用途：在 GitHub 托管的 macOS runner 上编译狗头军师 iOS 键盘（未签名真机包），
+#       打包成 IPA 供你在本机用 Sideloadly 签名安装到 iPhone。
+# 不需要 Mac / Xcode，也不需要任何 Apple 证书。
+#
+# 用法：
+#   1. 把这个文件放到你 fork 的仓库的 .github/workflows/ 下
+#   2. GitHub → Actions → 本 workflow → Run workflow
+#   3. 填你自己的 Bundle ID（必填，见下），点 Run
+#   4. 跑完后在 Artifacts 里下载 goutoujunshi-device-unsigned.ipa
+#   5. Windows 上用 Sideloadly 打开该 IPA，输入你的 Apple ID 签名安装
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "你的唯一 Bundle ID（免费 Apple ID 签名必须有自己的 ID，建议 com.<你的名>.goutoujunshi）"
+        required: true
+        default: "com.yourname.goutoujunshi"
+  push:
+    branches: [main]
+    paths:
+      - "integrations/jev_ios/**"
+      - ".github/workflows/ios-device-ipa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: integrations/jev_ios
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      # 关键：未签名设备编译。GOUTOU_BUNDLE_ID 用命令行覆盖成你自己的 ID，
+      # 三个 target（主 App / 键盘 / 截图扩展）会自动追加 .keyboard / .capture。
+      # 这条命令来自仓库 docs/DEVELOPMENT.md，已在官方 CI 验证可编译通过。
+      - name: Build device targets (unsigned)
+        run: |
+          xcodebuild -project GoutouJunshi.xcodeproj -scheme GoutouJunshi \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build-device \
+            GOUTOU_BUNDLE_ID="${{ github.event.inputs.bundle_id }}" \
+            CODE_SIGNING_ALLOWED=NO build
+
+      # 把未签名的 .app（含两个扩展）包成标准 IPA（Payload/<app>.app）
+      - name: Package unsigned IPA
+        run: |
+          APP=$(find build-device/Build/Products/Debug-iphoneos -maxdepth 1 -name 'GoutouJunshi.app' -type d | head -n1)
+          echo "APP=$APP"
+          if [ -z "$APP" ]; then echo "ERROR: GoutouJunshi.app not found"; exit 1; fi
+          # 确认扩展也被编进去了
+          ls -d "$APP/PlugIns/"*.appex || echo "WARN: no extensions embedded"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -r goutoujunshi-device-unsigned.ipa Payload
+          ls -la goutoujunshi-device-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: goutoujunshi-device-unsigned
+          path: integrations/jev_ios/goutoujunshi-device-unsigned.ipa
+          if-no-files-found: error
