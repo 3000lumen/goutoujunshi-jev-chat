@@ -48,7 +48,7 @@ jobs:
           xcodebuild -project GoutouJunshi.xcodeproj -scheme GoutouJunshi \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build-device \
-            GOUTOU_BUNDLE_ID="${{ github.event.inputs.bundle_id }}" \
+            GOUTOU_BUNDLE_ID="${{ github.event.inputs.bundle_id || 'com.3000lumen.goutoujunshi' }}" \
             CODE_SIGNING_ALLOWED=NO build
 
       # 把未签名的 .app（含两个扩展）包成标准 IPA（Payload/<app>.app）
